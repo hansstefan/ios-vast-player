@@ -31,10 +31,12 @@
 {
     // Trigger those babies, async of course!
     VLogV(self.impressionURLs);
-    [self.impressionURLs enumerateObjectsUsingBlock:^(NSURL *url, NSUInteger idx, BOOL *stop) {
+    DLogI(self.impressionURLs.count);
+    for (NSUInteger index = 0; index < self.impressionURLs.count; index++) {
+        NSURL *url = self.impressionURLs[index];
         VLogV(url);
-        [self sendAsynchronousRequest:url context:@"trackImpressions"];
-    }];
+        [self sendAsynchronousRequest:url context:self.impressionURLs]; // @"trackImpressions"
+    }
 }
 
 - (void)trackEvent:(NSString*)event
@@ -47,6 +49,12 @@
             NSString *context = [NSString stringWithFormat:@"trackEvent: %@ (%@)", event, key];
             [self sendAsynchronousRequest:url context:context];
         }];
+        // WARNING — should anyone add other tracking, you might want to change the following!
+        if (![event isEqualToString:@"pause"]) {
+            NSMutableDictionary *mutableDictionary = [self.trackingEvents mutableCopy];
+            [mutableDictionary removeObjectForKey:event]; // Because all the events besides "start" shouldn't be called more than once.
+            self.trackingEvents = mutableDictionary;
+        }
     }
 }
 

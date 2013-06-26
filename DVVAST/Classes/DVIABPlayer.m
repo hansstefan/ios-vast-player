@@ -143,10 +143,15 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
         dispatch_async(dispatch_get_main_queue(), ^{
             switch (status) {
                 case AVPlayerItemStatusReadyToPlay:
-                    self.playerLayer.player = self.adPlayer;
-                    [self.currentInlineAd trackEvent:@"start"];
-                    [self.currentInlineAd trackImpressions];
-                    [self.adPlayer play];
+                    VLogF(self.rate);
+                    if (!self.rate) {
+                        self.playerLayer.player = self.adPlayer;
+                        if (self.currentInlineAd.playMediaFile) {
+                            [self.currentInlineAd trackEvent:@"start"];
+                        }
+                        [super pause];
+                        [self.adPlayer play];
+                    }
                     break;
                     
                 case AVPlayerItemStatusFailed:
@@ -170,6 +175,12 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
                 if (CMTimeCompare(CMTimeAbsoluteValue(self.currentItem.currentTime),
                                   CMTimeMake(1, 1)) == -1) {
                     self.playBreaksQueue = [[self.adPlaylist preRollPlayBreaks] mutableCopy];
+                    // http://stackoverflow.com/questions/1582383/how-can-i-tell-if-an-object-has-a-key-value-observer-attached
+                    @try{
+                        [self removeObserver:self forKeyPath:@"rate" context:DVIABContentPlayerRateObservationContext];
+                    }@catch(id anException){
+                        //do nothing, obviously it wasn't attached because an exception was thrown
+                    }
                     [self startPlayBreaksFromQueue];
                 }
             }
@@ -186,6 +197,7 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
             if (rate == 0 && !paused) {
                 VLogV(self.playerLayer);
                 self.playerLayer.player = self.adPlayer;
+                [super pause];
                 [self.adPlayer play];
             }
             paused = NO;
@@ -287,7 +299,8 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
     self.playerLayer.player = self;
     self.adPlayer = nil;
     
-    if (! self.contentPlayerItemDidReachEnd) {
+    if (!self.contentPlayerItemDidReachEnd) {
+        VLogF(self.rate);
         [self play];
     }
 }
@@ -308,6 +321,7 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
         _currentAd = [self.adsQueue objectAtIndex:0];
         [self.adsQueue removeObjectAtIndex:0];
         
+        [self.currentInlineAd trackImpressions];
         if (_currentAd.playMediaFile) {
             if (self.currentInlineAd) {
                 [self playInlineAd:self.currentInlineAd];
@@ -402,8 +416,9 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
 {
     VLogV(playerItem);
 
-    [self.currentInlineAd trackEvent:@"complete"];
-
+    if (self.currentInlineAd.playMediaFile) {
+        [self.currentInlineAd trackEvent:@"complete"];
+    }
     if (playerItem != nil) {
         [[NSNotificationCenter defaultCenter] removeObserver:self
                                                         name:AVPlayerItemDidPlayToEndTimeNotification
@@ -431,7 +446,9 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
 
 - (void)play
 {
-    if (self.adPlayer) {
+    if (self.adPlayer && ![super rate]) {
+        VLogF(self.rate);
+        [super pause];
         [self.adPlayer play];
     } else {
         [super play];
@@ -443,8 +460,12 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
     self.adPlayer = nil; // remove observers
     self.adPlaylist = nil; // to remove time observer
     self.contentPlayerItem = nil; // to remove notification observer
-    [self removeObserver:self forKeyPath:@"rate"
-                 context:DVIABContentPlayerRateObservationContext];
+    // http://stackoverflow.com/questions/1582383/how-can-i-tell-if-an-object-has-a-key-value-observer-attached
+    @try{
+        [self removeObserver:self forKeyPath:@"rate" context:DVIABContentPlayerRateObservationContext];
+    }@catch(id anException){
+        //do nothing, obviously it wasn't attached because an exception was thrown
+    }
 }
 
 #pragma mark - Networking
@@ -523,7 +544,7 @@ NSString *const DVIABPlayerErrorDomain = @"DVIABPlayerErrorDomain";
         if (!self.wrapper) {
             self.wrapper = (DVWrapperVideoAd*)adTemplate.ads[0];
         }
-        if (!self.adsQueue) { // adTemplate.ads.count && adTemplate.ads[0] == wrapper
+        if (!self.adsQueue) {
             // Supercharge with the inline ad.
             self.adsQueue = [adTemplate.ads mutableCopy];
             [self fetchPlayBreakAdTemplate:_wrapper.videoPlayBreak];
